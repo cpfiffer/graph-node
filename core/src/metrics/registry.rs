@@ -11,8 +11,9 @@ pub struct MetricsRegistry {
     unregister_errors: Box<Counter>,
     registered_metrics: Box<Gauge>,
 
-    /// Global metrics are are lazily initialized and identified by name.
-    global_counters: Arc<RwLock<HashMap<String, Counter>>>,
+    /// Global metrics are lazily initialized and identified by name and
+    /// possibly deployment
+    global_counters: Arc<RwLock<HashMap<(String, Option<String>), Counter>>>,
     global_gauges: Arc<RwLock<HashMap<String, Gauge>>>,
 }
 
@@ -129,20 +130,23 @@ impl MetricsRegistryTrait for MetricsRegistry {
         &self,
         name: &str,
         help: &str,
-        subgraph: Option<&str>,
+        deployment: Option<&str>,
     ) -> Result<Counter, PrometheusError> {
-        let maybe_counter = self.global_counters.read().unwrap().get(name).cloned();
+        let deployment = deployment.map(|s| s.to_owned());
+        let key = (name.to_owned(), deployment);
+
+        let maybe_counter = self.global_counters.read().unwrap().get(&key).cloned();
         if let Some(counter) = maybe_counter {
             Ok(counter.clone())
         } else {
-            let counter = match subgraph {
-                None => *self.new_counter(&name, &help)?,
-                Some(subgraph) => *self.new_deployment_counter(name, help, subgraph)?,
+            let counter = match key.1 {
+                None => *self.new_counter(&key.0, &help)?,
+                Some(ref deployment) => *self.new_deployment_counter(&key.0, help, deployment)?,
             };
             self.global_counters
                 .write()
                 .unwrap()
-                .insert(name.to_owned(), counter.clone());
+                .insert(key, counter.clone());
             Ok(counter)
         }
     }
